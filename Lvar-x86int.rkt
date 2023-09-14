@@ -138,7 +138,7 @@
     [(Var x) (Seq (Assign (Var name) (Var x)) cont)]
     [(Int n) (Seq (Assign (Var name) (Int n)) cont)]
     [(Let lhs rhs body)
-     (explicate-assign (Var lhs) rhs (explicate-assign (Var name) body cont))]
+     (explicate-assign lhs rhs (explicate-assign name body cont))]
     [(Prim op es)
      (Seq (Assign (Var name) (Prim op es)) cont)]
     [else (error "explicate-assign unhandled case" e)]))
