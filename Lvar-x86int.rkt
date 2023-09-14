@@ -88,9 +88,40 @@
   (match p
     [(Program info e) (Program info ((uniquify-exp '()) e))]))
 
+(define (rco-atom e)
+  (match e
+    [(Var x) (values (Var x) '())]
+    [(Int n) (values (Int n) '())]
+    [(Let x rhs body)
+     (define new-rhs (rco-exp rhs))
+     (define-values (new-body body-substitutions) (rco-atom body))
+     (values new-body (append `((,x . ,new-rhs)) body-substitutions))]
+    [(Prim op es)
+     (define-values (new-es substitutions-list)
+       (for/lists (l1 l2) ([e es]) (rco-atom e)))
+     (define substitutions (append* substitutions-list))
+     (define tmp (gensym 'tmp))
+     (values (Var tmp)
+             (append substitutions `((,tmp . ,(Prim op new-es)))))]
+    ))
+
+(define (rco-exp e)
+  (match e
+    [(Var x) (Var x)]
+    [(Int x) (Int x)]
+    [(Let x rhs body)
+     (Let x (rco-exp rhs) (rco-exp body))]
+    [(Prim op es)
+     (define-values (new-es substitutions-list)
+       (for/lists (l m) ([e es]) (rco-atom e)))
+     (make-lets (append* substitutions-list) (Prim op new-es))]
+    ))
+
 ;; remove-complex-opera* : Lvar -> Lvar^mon
 (define (remove-complex-opera* p)
-  (error "TODO: code goes here (remove-complex-opera*)"))
+  (match p
+    [(Program info e)
+     (Program info (rco-exp e))]))
 
 ;; explicate-control : Lvar^mon -> Cvar
 (define (explicate-control p)
