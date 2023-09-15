@@ -7,6 +7,7 @@
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "utilities.rkt")
+(require "interp.rkt")
 (provide (all-defined-out))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -149,10 +150,58 @@
     [(Program info body)
      (CProgram info `((start . ,(explicate-tail body))))]))
 
+(define (select-atm a)
+  (match a
+    [(Int n) (Imm n)]
+    [(Var _) a]))
+
+(define (get-asm op)
+  (case op
+    [(+) 'addq]
+    [(-) 'subq]))
+
+(define/match (select-binary-ops place op a b)
+  [((Var v) op (Var w) b) #:when (equal? v w)
+   (list (Instr (get-asm op) (select-atm b (Var v))))]
+  [((Var v) op a (Var w)) #:when (equal? v w)
+   (list (Instr (get-asm op) (select-atm a (Var v))))]
+  [(_ _ _ _)
+   (list (Instr 'movq (list (select-atm a) place))
+         (Instr (get-asm op) (list (select-atm b) place)))])
+
+(define (select-exp place e)
+  (match e
+    [(or (Int _) (Var _))
+     (list (Instr 'movq (list (select-atm e) place)))]
+    [(Prim 'read '())
+     (list (Callq 'read_int)
+           (Instr 'movq (Reg 'rax) place))] ;Can I really do this? What if I want to store things in %rax?
+    [(Prim '- (list a))
+     (list (Instr 'movq (list (select-atm a) place))
+           (Instr 'negq (list place)))]
+    [(Prim op (list a b))
+     (select-binary-ops place op a b)]
+  ))
+
+(define (select-stmt s)
+  (match s
+    [(Assign place e) (select-exp place e)]))
+
+(define (select-tail t)
+  (match t
+    [(Seq stmt tail)
+     (append (select-stmt stmt) (select-tail tail))]
+    [(Return (Prim 'read '()))
+     (list (Callq 'read_int) (Jmp 'conclusion))]
+    [(Return e)
+     (append (select-exp (Reg 'rax) e)
+             (list (Jmp 'conclusion)))]))
+
 ;; select-instructions : Cvar -> x86var
 (define (select-instructions p)
-  (error "TODO: code goes here (select-instructions)"))
-
+  (match p
+    [(CProgram info (list (cons 'start t)))
+     (X86Program info (list (cons 'start (Block '() (select-tail t)))))]))
 ;; assign-homes : x86var -> x86var
 (define (assign-homes p)
   (error "TODO: code goes here (assign-homes)"))
@@ -174,7 +223,7 @@
      ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-     ;; ("instruction selection" ,select-instructions ,interp-x86-0)
+     ("instruction selection" ,select-instructions ,interp-x86-0)
      ;; ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
